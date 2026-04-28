@@ -1,0 +1,10 @@
+policyName: "Enterprise Security Standard"
+policyVersion: "1.0.0"
+rules:
+  - id: "SQL-001"
+    name: "No Dynamic SQL Concatenation"
+    severity: "CRITICAL"
+    description: "Manual string concatenation in SQL queries is strictly forbidden. Use parameterized queries or ORMs."
+    examples:
+      violation: "const q = 'SELECT * FROM users WHERE id = ' + id;"
+      compliant: "const q = 'SELECT * FROM users WHERE id = ?'; db.execute(q, [id]);"
