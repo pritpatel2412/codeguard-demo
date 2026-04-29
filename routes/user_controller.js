@@ -8,3 +8,4 @@ async function getUser(req, res) {
 }
 
 module.exports = { getUser };
+// Test Purpose
