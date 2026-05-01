@@ -1,73 +1,84 @@
-/**
- * ⚠️  DEMO FILE — INTENTIONALLY INSECURE
- * ----------------------------------------
- * This file is created to demonstrate CodeGuard's
- * Natural Language Policy Enforcement feature.
- * 
- * It violates ALL 5 rules defined in .codeguard.yml:
- *   DEMO-001: Missing auditLogger middleware
- *   DEMO-002: Hardcoded secret/API key
- *   DEMO-003: SQL Injection via string interpolation
- *   DEMO-004: PII stored in plaintext (no hashing)
- *   DEMO-005: No input validation on req.body
- * 
- * DO NOT use this code in any real project.
- */
-
 import express from "express";
+import crypto from "crypto";
+import bcrypt from "bcrypt";
 import { db } from "./db";
 
 const router = express.Router();
 
-// ❌ DEMO-002 VIOLATION: Hardcoded secret key in source code
-// Should be: process.env.PAYMENT_SECRET_KEY
-const PAYMENT_SECRET_KEY = "sk_live_abc123supersecret987XYZ";
+// Use environment variable for secret key
+const PAYMENT_SECRET_KEY = process.env.PAYMENT_SECRET_KEY;
 
-// ❌ DEMO-001 VIOLATION: Route registered without auditLogger middleware
-// Should be: router.post("/register", auditLogger, async (req, res) => { ... })
-router.post("/register", async (req, res) => {
+// Middleware for audit logging
+const auditLogger = (req, res, next) => {
+  console.log(`Audit log: ${req.method} ${req.url}`);
+  next();
+};
 
-  // ❌ DEMO-005 VIOLATION: No schema validation on req.body
-  // User input is used directly without any zod/joi validation
-  const { username, email, phone, password } = req.body;
+// Input validation function
+const validateInput = (input) => {
+  // Basic validation example, should be replaced with a proper validation library like Joi or Zod
+  if (!input.username || !input.email || !input.phone || !input.password) {
+    throw new Error("Invalid input");
+  }
+};
 
-  // ❌ DEMO-004 VIOLATION: Storing PII (email, phone) in plaintext
-  // Should hash email with: sha256(email)
-  // Should hash phone with: sha256(phone)
-  const newUser = {
-    username: username,
-    email: email,          // ← plaintext PII
-    phone: phone,          // ← plaintext PII
-    password: password,    // ← plaintext password (should be bcrypt)
-  };
+// Hash function for PII
+const hashPII = (data) => {
+  return crypto.createHash('sha256').update(data).digest('hex');
+};
 
-  // ❌ DEMO-003 VIOLATION: SQL Injection via template literal interpolation
-  // A malicious user can send: username = "'; DROP TABLE users; --"
-  // Should use parameterized query: db.query("INSERT INTO users (username) VALUES ($1)", [username])
-  const result = await db.query(
-    `INSERT INTO users (username, email, phone, password)
-     VALUES ('${username}', '${email}', '${phone}', '${password}')`
-  );
+// Register route with auditLogger middleware
+router.post("/register", auditLogger, async (req, res) => {
+  try {
+    validateInput(req.body);
+    const { username, email, phone, password } = req.body;
 
-  // ❌ DEMO-002 VIOLATION (secondary): Using the hardcoded key to sign something
-  const token = signToken(newUser, PAYMENT_SECRET_KEY);
+    // Hash email and phone
+    const hashedEmail = hashPII(email);
+    const hashedPhone = hashPII(phone);
 
-  res.json({ success: true, token });
+    // Hash password with bcrypt
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    const newUser = {
+      username: username,
+      email: hashedEmail,
+      phone: hashedPhone,
+      password: hashedPassword,
+    };
+
+    // Use parameterized query to prevent SQL injection
+    const result = await db.query(
+      "INSERT INTO users (username, email, phone, password) VALUES ($1, $2, $3, $4)",
+      [username, hashedEmail, hashedPhone, hashedPassword]
+    );
+
+    const token = signToken(newUser, PAYMENT_SECRET_KEY);
+
+    res.json({ success: true, token });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
 });
 
+// User route with auditLogger middleware
+router.get("/user/:id", auditLogger, async (req, res) => {
+  try {
+    const userId = parseInt(req.params.id, 10);
+    if (isNaN(userId)) {
+      throw new Error("Invalid user ID");
+    }
 
-// ❌ DEMO-001 VIOLATION: Another route missing auditLogger
-// ❌ DEMO-003 VIOLATION: SQL Injection in GET route via req.params
-router.get("/user/:id", async (req, res) => {
-  const userId = req.params.id; // unvalidated input directly from URL
+    // Use parameterized query to prevent SQL injection
+    const user = await db.query(
+      "SELECT * FROM users WHERE id = $1",
+      [userId]
+    );
 
-  // Attacker input: /user/1 OR 1=1 → dumps entire table
-  const user = await db.query(
-    `SELECT * FROM users WHERE id = ${userId}`  // ← CRITICAL: SQL Injection
-  );
-
-  res.json(user.rows[0]);
+    res.json(user.rows[0]);
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
 });
-
 
 export default router;
