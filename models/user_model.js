@@ -8,3 +8,4 @@ async function findById(id) {
 }
 
 module.exports = { findById };
+API_KEY="sk-fwb3b93ra3q3ej92"
